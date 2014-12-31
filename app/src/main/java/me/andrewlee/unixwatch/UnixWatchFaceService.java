@@ -32,17 +32,6 @@ public class UnixWatchFaceService extends CanvasWatchFaceService {
 
         private final int TICK_MESSAGE_ID = 0;
 
-        private final Typeface CLOCK_TYPEFACE = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD);
-        private final String[] WEEKDAY_ABBR = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
-
-        private Paint backgroundPaint;
-        private Paint interactiveForegroundPaint;
-        private Paint interactiveForegroundSubPaint;
-        private Paint ambientForegroundPaint;
-        private Paint ambientForegroundSubPaint;
-
-        private Time mTime;
-
         private final Handler timerHandler = new Handler() {
             @Override
             public void handleMessage(Message m) {
@@ -62,10 +51,14 @@ public class UnixWatchFaceService extends CanvasWatchFaceService {
         private final BroadcastReceiver timeZoneReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                mTime.clear(intent.getStringExtra("time-zone"));
+                currentTimezone = intent.getStringExtra("time-zone");
             }
         };
         private boolean isTimeZoneReceiverRegistered = false;
+
+        private String currentTimezone = "";
+
+        private WatchFacePainter painter;
 
         @Override
         public void onCreate(SurfaceHolder holder) {
@@ -77,28 +70,7 @@ public class UnixWatchFaceService extends CanvasWatchFaceService {
                     .setShowSystemUiTime(false)
                     .build());
 
-            backgroundPaint = new Paint();
-            backgroundPaint.setColor(Color.BLACK);
-            backgroundPaint.setStyle(Paint.Style.FILL);
-
-            interactiveForegroundPaint = new Paint();
-            interactiveForegroundPaint.setColor(Color.GREEN);
-            interactiveForegroundPaint.setStyle(Paint.Style.FILL);
-            interactiveForegroundPaint.setTextSize(40);
-            interactiveForegroundPaint.setTypeface(CLOCK_TYPEFACE);
-            interactiveForegroundPaint.setTextAlign(Paint.Align.CENTER);
-            interactiveForegroundPaint.setAntiAlias(true);
-
-            interactiveForegroundSubPaint = new Paint(interactiveForegroundPaint);
-            interactiveForegroundSubPaint.setTextSize(20);
-
-            ambientForegroundPaint = new Paint(interactiveForegroundPaint);
-            ambientForegroundPaint.setColor(Color.GRAY);
-
-            ambientForegroundSubPaint = new Paint(ambientForegroundPaint);
-            ambientForegroundSubPaint.setTextSize(20);
-
-            mTime = new Time();
+            painter = new UnixWatchFacePainter();
 
             timerHandler.sendEmptyMessage(TICK_MESSAGE_ID);
         }
@@ -112,62 +84,7 @@ public class UnixWatchFaceService extends CanvasWatchFaceService {
         @Override
         public void onDraw(Canvas canvas, Rect bounds) {
             long currentMilliseconds = System.currentTimeMillis();
-            mTime.set(currentMilliseconds);
-
-            boolean[] dots = new boolean[32];
-            long tempSeconds = currentMilliseconds / 1000;
-            for (int i = 31; i >= 0; i--) {
-                dots[i] = tempSeconds % 2 == 1;
-                tempSeconds /= 2;
-            }
-
-            Paint foregroundPaint = isInAmbientMode() ?
-                    ambientForegroundPaint : interactiveForegroundPaint;
-            Paint foregroundSubPaint = isInAmbientMode() ?
-                    ambientForegroundSubPaint : interactiveForegroundSubPaint;
-
-            canvas.drawRect(bounds, backgroundPaint);
-            int dotSize = bounds.width() / 32;
-            for (int i = 0; i < 32; i++) {
-                if (dots[i]) {
-                    canvas.drawCircle(dotSize * i + dotSize / 2,
-                            bounds.height() / 2,
-                            dotSize / 2,
-                            foregroundPaint);
-                }
-            }
-
-            String clockString = getClockString();
-            int clockStringWidth = (int) foregroundPaint.measureText(clockString);
-            int clockStringX = bounds.width() / 2;
-            int clockStringY = bounds.height() / 2 - 2 * dotSize;
-            canvas.drawText(clockString, clockStringX, clockStringY, foregroundPaint);
-
-            String dateString = getDateString();
-            int dateStringWidth = (int) foregroundPaint.measureText(clockString);
-            int dateStringX = bounds.width() / 2;
-            int dateStringY = bounds.height() / 2 + 2 * dotSize + 20;
-            canvas.drawText(dateString, dateStringX, dateStringY, foregroundSubPaint);
-        }
-
-        private String getClockString() {
-            StringBuffer buffer = new StringBuffer();
-            buffer.append(String.format("%02d", mTime.hour));
-            buffer.append(":");
-            buffer.append(String.format("%02d", mTime.minute));
-            return buffer.toString();
-        }
-
-        private String getDateString() {
-            StringBuffer buffer = new StringBuffer();
-            buffer.append(WEEKDAY_ABBR[mTime.weekDay]);
-            buffer.append(" ");
-            buffer.append(String.format("%02d", mTime.month + 1));
-            buffer.append("/");
-            buffer.append(String.format("%02d", mTime.monthDay));
-            buffer.append("/");
-            buffer.append(String.format("%d", mTime.year));
-            return buffer.toString();
+            painter.paint(canvas, bounds, currentMilliseconds, currentTimezone, isInAmbientMode());
         }
 
         @Override
@@ -186,7 +103,7 @@ public class UnixWatchFaceService extends CanvasWatchFaceService {
 
             if (visible) {
                 registerTimeZoneReceiver();
-                mTime.clear(TimeZone.getDefault().getID());
+                currentTimezone = TimeZone.getDefault().getID();
             } else {
                 unregisterTimeZoneReceiver();
             }
